@@ -1,17 +1,21 @@
-import { useState, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
-import AlgorithmSelector from "../components/AlgorithmSelector";
-import CodeEditor from "../components/CodeEditor";
-import VisualizerCanvas from "../components/VisualizerCanvas";
-import ControlButtons from "../components/ControlButtons";
-import API from "../utils/api";
-import { playAnimation, getAlgorithmCategory, requiresTarget } from "../utils/animations";
+import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import AlgorithmSelector from '../components/AlgorithmSelector';
+import CodeEditor from '../components/CodeEditor';
+import VisualizerCanvas from '../components/VisualizerCanvas';
+import ControlButtons from '../components/ControlButtons';
+import API from '../utils/api';
+import {
+  playAnimation,
+  getAlgorithmCategory,
+  requiresTarget,
+} from '../utils/animations';
 
 const Visualizer = () => {
   const location = useLocation();
 
-  const [selected, setSelected] = useState("");
-  const [code, setCode] = useState("// Algorithm code will appear here");
+  const [selected, setSelected] = useState('');
+  const [code, setCode] = useState('// Algorithm code will appear here');
   const [data, setData] = useState([5, 3, 8, 1, 6]);
   const [active, setActive] = useState([]);
   const [sorting, setSorting] = useState(false);
@@ -19,17 +23,19 @@ const Visualizer = () => {
   const [speed, setSpeed] = useState(300);
   const [arraySize, setArraySize] = useState(15);
   const [target, setTarget] = useState(5);
-  const [algorithmCategory, setAlgorithmCategory] = useState("sorting");
+  const [algorithmCategory, setAlgorithmCategory] = useState('sorting');
+  const [graphData, setGraphData] = useState(null);
+  const [recursionData, setRecursionData] = useState(null);
 
   const pauseRef = useRef(paused);
   pauseRef.current = paused;
 
-  const normalize = (str) => str.toLowerCase().replace(/\s+/g, "");
+  const normalize = str => str.toLowerCase().replace(/\s+/g, '');
 
   // 🔹 Update selected algorithm whenever URL query changes
   useEffect(() => {
     const queryParams = new URLSearchParams(location.search);
-    const algo = queryParams.get("algorithm") || "";
+    const algo = queryParams.get('algorithm') || '';
     setSelected(algo);
     if (algo) {
       setAlgorithmCategory(getAlgorithmCategory(algo));
@@ -40,14 +46,14 @@ const Visualizer = () => {
   useEffect(() => {
     if (!selected) return;
 
-    setCode("// Loading...");
+    setCode('// Loading...');
 
     const fetchCode = async () => {
       try {
         const res = await API.get(`/algorithms/sorting/${normalize(selected)}`);
-        setCode(res.data.code || "// No code found for this algorithm");
+        setCode(res.data.code || '// No code found for this algorithm');
       } catch (err) {
-        setCode("// Failed to fetch algorithm code");
+        setCode('// Failed to fetch algorithm code');
       }
     };
 
@@ -63,18 +69,54 @@ const Visualizer = () => {
     }
 
     if (!selected) {
-      alert("Please select an algorithm first");
+      alert('Please select an algorithm first');
       return;
     }
 
     setSorting(true);
     setPaused(false);
 
+    // Initialize data based on algorithm type
+    let algorithmData = data;
+    if (algorithmCategory === 'graph') {
+      // Initialize graph data
+      algorithmData = {
+        graph: {
+          0: [1, 2],
+          1: [0, 3, 4],
+          2: [0, 5],
+          3: [1],
+          4: [1, 5],
+          5: [2, 4],
+        },
+      };
+      setGraphData(algorithmData);
+    } else if (algorithmCategory === 'recursion') {
+      // Initialize recursion data
+      algorithmData = { tree: [], result: null };
+      setRecursionData(algorithmData);
+    } else if (algorithmCategory === 'dp') {
+      // Initialize DP table data
+      algorithmData = {
+        table: Array(5)
+          .fill()
+          .map(() => Array(5).fill(0)),
+      };
+    }
+
     try {
       await playAnimation(
         selected,
-        data,
-        setData,
+        algorithmData,
+        newData => {
+          if (algorithmCategory === 'graph') {
+            setGraphData(newData);
+          } else if (algorithmCategory === 'recursion') {
+            setRecursionData(newData);
+          } else {
+            setData(newData);
+          }
+        },
         speed,
         setActive,
         () => pauseRef.current,
@@ -92,9 +134,17 @@ const Visualizer = () => {
     setPaused(true);
   };
 
-  // Updated: Reset to original data and auto-start sorting with a delay for state sync
+  // Updated: Reset to original data and auto-start algorithm with a delay for state sync
   const reset = () => {
-    setData([5, 3, 8, 1, 6]); // Reset to initial unsorted data
+    // Reset data based on algorithm type
+    if (algorithmCategory === 'graph') {
+      setGraphData(null);
+    } else if (algorithmCategory === 'recursion') {
+      setRecursionData(null);
+    } else {
+      setData([5, 3, 8, 1, 6]); // Reset to initial data for sorting/searching
+    }
+
     setActive([]);
     setSorting(false);
     setPaused(false);
@@ -102,19 +152,19 @@ const Visualizer = () => {
     // Use setTimeout to ensure state updates before starting
     setTimeout(async () => {
       if (selected) {
-        console.log("Reset complete, starting sort..."); // Debug log
+        console.log('Reset complete, starting algorithm...'); // Debug log
         await play();
       } else {
-        console.log("No algorithm selected for reset auto-start."); // Debug log
+        console.log('No algorithm selected for reset auto-start.'); // Debug log
       }
     }, 100); // Small delay (100ms) for React to update state
   };
 
-  const next = () => alert("Step feature not implemented yet");
-  const prev = () => alert("Step-back not implemented yet");
+  const next = () => alert('Step feature not implemented yet');
+  const prev = () => alert('Step-back not implemented yet');
 
   // Generate random data with distinct numbers only (no duplicates)
-  const generateRandomData = (size) => {
+  const generateRandomData = size => {
     const uniqueValues = new Set();
     while (uniqueValues.size < size) {
       uniqueValues.add(Math.floor(Math.random() * 95) + 5);
@@ -129,8 +179,12 @@ const Visualizer = () => {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-800">Algorithm Visualizer</h1>
-              <p className="text-gray-600 mt-1">Interactive step-by-step algorithm visualization</p>
+              <h1 className="text-3xl font-bold text-gray-800">
+                Algorithm Visualizer
+              </h1>
+              <p className="text-gray-600 mt-1">
+                Interactive step-by-step algorithm visualization
+              </p>
             </div>
             <div className="flex items-center space-x-4">
               <div className="text-right">
@@ -172,11 +226,13 @@ const Visualizer = () => {
               </h3>
             </div>
             <div className="h-96 p-4">
-              <VisualizerCanvas 
-                data={data} 
-                active={active} 
+              <VisualizerCanvas
+                data={data}
+                active={active}
                 algorithm={algorithmCategory}
                 target={requiresTarget(selected) ? target : null}
+                graphData={graphData}
+                recursionData={recursionData}
               />
             </div>
           </div>
@@ -188,7 +244,7 @@ const Visualizer = () => {
             <span className="mr-2">🎮</span>
             Controls
           </h3>
-          
+
           <div className="flex flex-wrap items-center justify-center gap-6">
             <ControlButtons
               onPlay={play}
@@ -206,7 +262,7 @@ const Visualizer = () => {
             <span className="mr-2">⚙️</span>
             Settings & Data
           </h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Speed Control */}
             <div className="space-y-2">
@@ -220,7 +276,7 @@ const Visualizer = () => {
                   max="1000"
                   step="50"
                   value={speed}
-                  onChange={(e) => setSpeed(Number(e.target.value))}
+                  onChange={e => setSpeed(Number(e.target.value))}
                   className="flex-1"
                 />
                 <span className="text-sm text-gray-600 w-16">{speed}ms</span>
@@ -237,7 +293,7 @@ const Visualizer = () => {
                 min="5"
                 max="50"
                 value={arraySize}
-                onChange={(e) => setArraySize(Number(e.target.value))}
+                onChange={e => setArraySize(Number(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -253,7 +309,7 @@ const Visualizer = () => {
                   min="1"
                   max="100"
                   value={target}
-                  onChange={(e) => setTarget(Number(e.target.value))}
+                  onChange={e => setTarget(Number(e.target.value))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
