@@ -1,0 +1,3 @@
+[submodule "case_tools"]
+	path = case_tools
+	url = https://github.com/SrujanRaj-cse/animations.git
