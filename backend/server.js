@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import authRoutes from './routes/auth.js';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import helmet from 'helmet';
@@ -24,21 +25,16 @@ import runNQueenSteps from './recursions/NQueen/NQueen.index.js';
 import runGridPaths2Steps from './dynamicProgramming/GridPaths2/gridPaths2.index.js';
 
 // Load environment variables
-dotenv.config();
-
-// const url = '/api/visualize/sorts/bubble-sort';
-
-// import {url} from '../hooks/useAlgFetch.js'
-
-// const express = require('express');
-// const cors = require('cors');
-// const runBubbleSort = require('./sorts/bubbleSort/index.js');
-
 const app = express();
+
+// ✅ Then use middleware
+app.use(cors());
+app.use(express.json());
+app.use('/api/auth', authRoutes);
 const port = process.env.PORT || 5000;
 const MONGO_URI =
   process.env.MONGODB_URI || 'mongodb://localhost:27017/algovisualizer';
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key';
+const JWT_SECRET = process.env.ENV_SECRET || 'your-super-secret-jwt-key'; // Assuming ENV_SECRET is correct
 
 // Connect to MongoDB
 mongoose
@@ -61,7 +57,7 @@ app.use('/api/', limiter);
 // CORS configuration
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:5174',
     credentials: true,
   })
 );
@@ -98,29 +94,43 @@ const requireAdmin = (req, res, next) => {
 
 // User Registration
 app.post('/api/auth/register', async (req, res) => {
-  const { username, email, password, firstName, lastName } = req.body;
+  // 1. LOGGING: Log received data for debugging
+  console.log('Received registration request body:', req.body);
+  let { username, email, password, firstName, lastName } = req.body; // 2. USERNAME FALLBACK: Check and fix username if missing or invalid based on schema
+  console.log('ACAJDWOHWO');
+  let finalUsername = username;
+  if (!finalUsername || finalUsername.length < 3) {
+    // Create a basic username from email, stripping invalid characters
+    const baseUsername = email ? email.split('@')[0] : '';
+    finalUsername = baseUsername.replace(/[^a-zA-Z0-9_]/g, '');
+
+    if (finalUsername.length < 3) {
+      // Fallback to a timestamped user if email prefix is too short
+      finalUsername = `user_${Date.now()}`.substring(0, 30);
+    }
+  }
 
   try {
-    // Check if user already exists
-    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
+    // Check if user already exists (using the final username)
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username: finalUsername }],
+    });
     if (existingUser) {
       return res.status(409).json({
         message: 'User already exists',
         field: existingUser.email === email ? 'email' : 'username',
       });
-    }
+    } // Create new user
 
-    // Create new user
     const newUser = new User({
-      username,
+      username: finalUsername, // Use the corrected username
       email,
       password,
       profile: { firstName, lastName },
     });
 
-    await newUser.save();
+    await newUser.save(); // Hashing happens here (in the User model hook) // Generate JWT token
 
-    // Generate JWT token
     const token = jwt.sign(
       {
         userId: newUser._id,
@@ -143,7 +153,12 @@ app.post('/api/auth/register', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    // 3. ENHANCED ERROR LOGGING
+    console.error(
+      'Registration error (detailed):',
+      error.message,
+      error.errors
+    );
 
     if (error.name === 'ValidationError') {
       const errors = Object.values(error.errors).map(err => err.message);
@@ -159,7 +174,7 @@ app.post('/api/auth/register', async (req, res) => {
 
 // User Login
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body; // <--- It expects email and password
 
   try {
     // Find user by email
@@ -167,24 +182,20 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid email or password' });
-    }
+    } // Check if user is active
 
-    // Check if user is active
     if (!user.isActive) {
       return res.status(401).json({ message: 'Account is deactivated' });
-    }
+    } // Compare password
 
-    // Compare password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       return res.status(401).json({ message: 'Invalid email or password' });
-    }
+    } // Update last login
 
-    // Update last login
     user.lastLogin = new Date();
-    await user.save();
+    await user.save(); // Generate JWT token
 
-    // Generate JWT token
     const token = jwt.sign(
       {
         userId: user._id,
@@ -318,8 +329,7 @@ app.get('/api/visualizations/step/:visId', async (req, res) => {
     const visualization = await VisualizationStep.findById(visId);
     if (!visualization) {
       return res.status(404).json({ message: 'Visualization not found' });
-    }
-    // Return the full saved object, including the 'steps' array
+    } // Return the full saved object, including the 'steps' array
     res.status(200).json(visualization);
   } catch (error) {
     console.error('Load specific step error:', error);
@@ -474,14 +484,12 @@ app.post('/api/algorithms/:category/:algorithm', (req, res) => {
         }
         break;
 
-      case 'searching':
-        // Add searching algorithms here
+      case 'searching': // Add searching algorithms here
         return res.status(400).json({
           error: `Searching algorithms not yet implemented`,
         });
 
-      case 'graph':
-        // Add graph algorithms here
+      case 'graph': // Add graph algorithms here
         return res.status(400).json({
           error: `Graph algorithms not yet implemented`,
         });
@@ -586,9 +594,8 @@ app.get('/api/algorithms/:id', async (req, res) => {
 
     if (!algorithm) {
       return res.status(404).json({ message: 'Algorithm not found' });
-    }
+    } // Increment view count
 
-    // Increment view count
     algorithm.stats.views += 1;
     await algorithm.save();
 
@@ -605,9 +612,8 @@ app.get('/api/algorithms/:category/:algorithm', async (req, res) => {
 
   try {
     const normalizedCategory = category.toLowerCase();
-    const normalizedAlgorithm = algorithm.toLowerCase().replace(/\s+/g, '-');
+    const normalizedAlgorithm = algorithm.toLowerCase().replace(/\s+/g, '-'); // Try to find in database first
 
-    // Try to find in database first
     let algorithmCode = await AlgorithmCode.findOne({
       category: normalizedCategory,
       name: normalizedAlgorithm,
@@ -623,9 +629,8 @@ app.get('/api/algorithms/:category/:algorithm', async (req, res) => {
         description: algorithmCode.description,
         complexity: algorithmCode.complexity,
       });
-    }
+    } // Fallback to hardcoded templates if not in database
 
-    // Fallback to hardcoded templates if not in database
     const fallbackCode = getFallbackAlgorithmCode(
       normalizedCategory,
       normalizedAlgorithm
@@ -702,424 +707,424 @@ const getFallbackAlgorithmCode = (category, algorithm) => {
   const algorithmCode = {
     sorting: {
       'bubble-sort': `function bubbleSort(arr) {
-  const n = arr.length;
-  let swapped;
-  
-  for (let i = 0; i < n - 1; i++) {
-    swapped = false;
-    
-    for (let j = 0; j < n - i - 1; j++) {
-      if (arr[j] > arr[j + 1]) {
-        // Swap elements
-        [arr[j], arr[j + 1]] = [arr[j + 1], arr[j]];
-        swapped = true;
-      }
-    }
-    
-    // If no swaps occurred, array is sorted
-    if (!swapped) break;
-  }
-  
-  return arr;
+  const n = arr.length;
+  let swapped;
+  
+  for (let i = 0; i < n - 1; i++) {
+    swapped = false;
+    
+    for (let j = 0; j < n - i - 1; j++) {
+      if (arr[j] > arr[j + 1]) {
+        // Swap elements
+        [arr[j], arr[j + 1]] = [arr[j + 1], arr[j]];
+        swapped = true;
+      }
+    }
+    
+    // If no swaps occurred, array is sorted
+    if (!swapped) break;
+  }
+  
+  return arr;
 }`,
       'selection-sort': `function selectionSort(arr) {
-  const n = arr.length;
-  
-  for (let i = 0; i < n - 1; i++) {
-    let minIndex = i;
-    
-    // Find minimum element in remaining array
-    for (let j = i + 1; j < n; j++) {
-      if (arr[j] < arr[minIndex]) {
-        minIndex = j;
-      }
-    }
-    
-    // Swap if minimum is not at current position
-    if (minIndex !== i) {
-      [arr[i], arr[minIndex]] = [arr[minIndex], arr[i]];
-    }
-  }
-  
-  return arr;
+  const n = arr.length;
+  
+  for (let i = 0; i < n - 1; i++) {
+    let minIndex = i;
+    
+    // Find minimum element in remaining array
+    for (let j = i + 1; j < n; j++) {
+      if (arr[j] < arr[minIndex]) {
+        minIndex = j;
+      }
+    }
+    
+    // Swap if minimum is not at current position
+    if (minIndex !== i) {
+      [arr[i], arr[minIndex]] = [arr[minIndex], arr[i]];
+    }
+  }
+  
+  return arr;
 }`,
       'insertion-sort': `function insertionSort(arr) {
-  const n = arr.length;
-  
-  for (let i = 1; i < n; i++) {
-    const key = arr[i];
-    let j = i - 1;
-    
-    // Move elements greater than key one position ahead
-    while (j >= 0 && arr[j] > key) {
-      arr[j + 1] = arr[j];
-      j--;
-    }
-    
-    arr[j + 1] = key;
-  }
-  
-  return arr;
+  const n = arr.length;
+  
+  for (let i = 1; i < n; i++) {
+    const key = arr[i];
+    let j = i - 1;
+    
+    // Move elements greater than key one position ahead
+    while (j >= 0 && arr[j] > key) {
+      arr[j + 1] = arr[j];
+      j--;
+    }
+    
+    arr[j + 1] = key;
+  }
+  
+  return arr;
 }`,
       'merge-sort': `function mergeSort(arr) {
-  if (arr.length <= 1) return arr;
-  
-  const mid = Math.floor(arr.length / 2);
-  const left = mergeSort(arr.slice(0, mid));
-  const right = mergeSort(arr.slice(mid));
-  
-  return merge(left, right);
+  if (arr.length <= 1) return arr;
+  
+  const mid = Math.floor(arr.length / 2);
+  const left = mergeSort(arr.slice(0, mid));
+  const right = mergeSort(arr.slice(mid));
+  
+  return merge(left, right);
 }
 
 function merge(left, right) {
-  const result = [];
-  let i = 0, j = 0;
-  
-  while (i < left.length && j < right.length) {
-    if (left[i] <= right[j]) {
-      result.push(left[i]);
-      i++;
-    } else {
-      result.push(right[j]);
-      j++;
-    }
-  }
-  
-  return result.concat(left.slice(i)).concat(right.slice(j));
+  const result = [];
+  let i = 0, j = 0;
+  
+  while (i < left.length && j < right.length) {
+    if (left[i] <= right[j]) {
+      result.push(left[i]);
+      i++;
+    } else {
+      result.push(right[j]);
+      j++;
+    }
+  }
+  
+  return result.concat(left.slice(i)).concat(right.slice(j));
 }`,
       'quick-sort': `function quickSort(arr, low = 0, high = arr.length - 1) {
-  if (low < high) {
-    const pivotIndex = partition(arr, low, high);
-    
-    quickSort(arr, low, pivotIndex - 1);
-    quickSort(arr, pivotIndex + 1, high);
-  }
-  
-  return arr;
+  if (low < high) {
+    const pivotIndex = partition(arr, low, high);
+    
+    quickSort(arr, low, pivotIndex - 1);
+    quickSort(arr, pivotIndex + 1, high);
+  }
+  
+  return arr;
 }
 
 function partition(arr, low, high) {
-  const pivot = arr[high];
-  let i = low - 1;
-  
-  for (let j = low; j < high; j++) {
-    if (arr[j] <= pivot) {
-      i++;
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-  }
-  
-  [arr[i + 1], arr[high]] = [arr[high], arr[i + 1]];
-  return i + 1;
+  const pivot = arr[high];
+  let i = low - 1;
+  
+  for (let j = low; j < high; j++) {
+    if (arr[j] <= pivot) {
+      i++;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+  
+  [arr[i + 1], arr[high]] = [arr[high], arr[i + 1]];
+  return i + 1;
 }`,
       'heap-sort': `function heapSort(arr) {
-  const n = arr.length;
-  
-  // Build max heap
-  for (let i = Math.floor(n / 2) - 1; i >= 0; i--) {
-    heapify(arr, n, i);
-  }
-  
-  // Extract elements from heap one by one
-  for (let i = n - 1; i > 0; i--) {
-    [arr[0], arr[i]] = [arr[i], arr[0]];
-    heapify(arr, i, 0);
-  }
-  
-  return arr;
+  const n = arr.length;
+  
+  // Build max heap
+  for (let i = Math.floor(n / 2) - 1; i >= 0; i--) {
+    heapify(arr, n, i);
+  }
+  
+  // Extract elements from heap one by one
+  for (let i = n - 1; i > 0; i--) {
+    [arr[0], arr[i]] = [arr[i], arr[0]];
+    heapify(arr, i, 0);
+  }
+  
+  return arr;
 }
 
 function heapify(arr, n, i) {
-  let largest = i;
-  const left = 2 * i + 1;
-  const right = 2 * i + 2;
-  
-  if (left < n && arr[left] > arr[largest]) {
-    largest = left;
-  }
-  
-  if (right < n && arr[right] > arr[largest]) {
-    largest = right;
-  }
-  
-  if (largest !== i) {
-    [arr[i], arr[largest]] = [arr[largest], arr[i]];
-    heapify(arr, n, largest);
-  }
+  let largest = i;
+  const left = 2 * i + 1;
+  const right = 2 * i + 2;
+  
+  if (left < n && arr[left] > arr[largest]) {
+    largest = left;
+  }
+  
+  if (right < n && arr[right] > arr[largest]) {
+    largest = right;
+  }
+  
+  if (largest !== i) {
+    [arr[i], arr[largest]] = [arr[largest], arr[i]];
+    heapify(arr, n, largest);
+  }
 }`,
       'radix-sort': `function radixSort(arr) {
-  const max = Math.max(...arr);
-  
-  for (let exp = 1; Math.floor(max / exp) > 0; exp *= 10) {
-    countingSortByDigit(arr, exp);
-  }
-  
-  return arr;
+  const max = Math.max(...arr);
+  
+  for (let exp = 1; Math.floor(max / exp) > 0; exp *= 10) {
+    countingSortByDigit(arr, exp);
+  }
+  
+  return arr;
 }
 
 function countingSortByDigit(arr, exp) {
-  const n = arr.length;
-  const output = new Array(n);
-  const count = new Array(10).fill(0);
-  
-  // Count occurrences
-  for (let i = 0; i < n; i++) {
-    count[Math.floor(arr[i] / exp) % 10]++;
-  }
-  
-  // Change count[i] to position of next occurrence
-  for (let i = 1; i < 10; i++) {
-    count[i] += count[i - 1];
-  }
-  
-  // Build output array
-  for (let i = n - 1; i >= 0; i--) {
-    output[count[Math.floor(arr[i] / exp) % 10] - 1] = arr[i];
-    count[Math.floor(arr[i] / exp) % 10]--;
-  }
-  
-  // Copy output back to original array
-  for (let i = 0; i < n; i++) {
-    arr[i] = output[i];
-  }
+  const n = arr.length;
+  const output = new Array(n);
+  const count = new Array(10).fill(0);
+  
+  // Count occurrences
+  for (let i = 0; i < n; i++) {
+    count[Math.floor(arr[i] / exp) % 10]++;
+  }
+  
+  // Change count[i] to position of next occurrence
+  for (let i = 1; i < 10; i++) {
+    count[i] += count[i - 1];
+  }
+  
+  // Build output array
+  for (let i = n - 1; i >= 0; i--) {
+    output[count[Math.floor(arr[i] / exp) % 10] - 1] = arr[i];
+    count[Math.floor(arr[i] / exp) % 10]--;
+  }
+  
+  // Copy output back to original array
+  for (let i = 0; i < n; i++) {
+    arr[i] = output[i];
+  }
 }`,
     },
     searching: {
       'linear-search': `function linearSearch(arr, target) {
-  for (let i = 0; i < arr.length; i++) {
-    if (arr[i] === target) {
-      return i; // Found at index i
-    }
-  }
-  return -1; // Not found
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] === target) {
+      return i; // Found at index i
+    }
+  }
+  return -1; // Not found
 }`,
       'binary-search': `function binarySearch(arr, target) {
-  let left = 0;
-  let right = arr.length - 1;
-  
-  while (left <= right) {
-    const mid = Math.floor((left + right) / 2);
-    
-    if (arr[mid] === target) {
-      return mid;
-    } else if (arr[mid] < target) {
-      left = mid + 1;
-    } else {
-      right = mid - 1;
-    }
-  }
-  
-  return -1; // Target not found
+  let left = 0;
+  let right = arr.length - 1;
+  
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    
+    if (arr[mid] === target) {
+      return mid;
+    } else if (arr[mid] < target) {
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  
+  return -1; // Target not found
 }`,
     },
     graph: {
       bfs: `function bfs(graph, startNode) {
-  const visited = new Set();
-  const queue = [startNode];
-  const result = [];
-  
-  visited.add(startNode);
-  
-  while (queue.length > 0) {
-    const currentNode = queue.shift();
-    result.push(currentNode);
-    
-    const neighbors = graph[currentNode] || [];
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        visited.add(neighbor);
-        queue.push(neighbor);
-      }
-    }
-  }
-  
-  return result;
+  const visited = new Set();
+  const queue = [startNode];
+  const result = [];
+  
+  visited.add(startNode);
+  
+  while (queue.length > 0) {
+    const currentNode = queue.shift();
+    result.push(currentNode);
+    
+    const neighbors = graph[currentNode] || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+  
+  return result;
 }`,
       dfs: `function dfs(graph, startNode) {
-  const visited = new Set();
-  const result = [];
-  
-  const dfsHelper = (node) => {
-    visited.add(node);
-    result.push(node);
-    
-    const neighbors = graph[node] || [];
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor)) {
-        dfsHelper(neighbor);
-      }
-    }
-  };
-  
-  dfsHelper(startNode);
-  return result;
+  const visited = new Set();
+  const result = [];
+  
+  const dfsHelper = (node) => {
+    visited.add(node);
+    result.push(node);
+    
+    const neighbors = graph[node] || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        dfsHelper(neighbor);
+      }
+    }
+  };
+  
+  dfsHelper(startNode);
+  return result;
 }`,
       dijkstra: `function dijkstra(graph, start, end) {
-  const distances = {};
-  const previous = {};
-  const unvisited = new Set();
-  
-  // Initialize distances
-  for (const node in graph) {
-    distances[node] = node === start ? 0 : Infinity;
-    unvisited.add(node);
-  }
-  
-  while (unvisited.size > 0) {
-    // Find unvisited node with minimum distance
-    let current = null;
-    let minDistance = Infinity;
-    
-    for (const node of unvisited) {
-      if (distances[node] < minDistance) {
-        minDistance = distances[node];
-        current = node;
-      }
-    }
-    
-    if (current === null || current === end) break;
-    unvisited.delete(current);
-    
-    // Update distances to neighbors
-    for (const neighbor in graph[current]) {
-      const distance = distances[current] + graph[current][neighbor];
-      if (distance < distances[neighbor]) {
-        distances[neighbor] = distance;
-        previous[neighbor] = current;
-      }
-    }
-  }
-  
-  return { distances, previous };
+  const distances = {};
+  const previous = {};
+  const unvisited = new Set();
+  
+  // Initialize distances
+  for (const node in graph) {
+    distances[node] = node === start ? 0 : Infinity;
+    unvisited.add(node);
+  }
+  
+  while (unvisited.size > 0) {
+    // Find unvisited node with minimum distance
+    let current = null;
+    let minDistance = Infinity;
+    
+    for (const node of unvisited) {
+      if (distances[node] < minDistance) {
+        minDistance = distances[node];
+        current = node;
+      }
+    }
+    
+    if (current === null || current === end) break;
+    unvisited.delete(current);
+    
+    // Update distances to neighbors
+    for (const neighbor in graph[current]) {
+      const distance = distances[current] + graph[current][neighbor];
+      if (distance < distances[neighbor]) {
+        distances[neighbor] = distance;
+        previous[neighbor] = current;
+      }
+    }
+  }
+  
+  return { distances, previous };
 }`,
     },
     recursion: {
       factorial: `function factorial(n) {
-  if (n <= 1) {
-    return 1; // Base case
-  }
-  
-  return n * factorial(n - 1); // Recursive case
+  if (n <= 1) {
+    return 1; // Base case
+  }
+  
+  return n * factorial(n - 1); // Recursive case
 }`,
       fibonacci: `function fibonacci(n) {
-  if (n <= 1) {
-    return n; // Base case
-  }
-  
-  return fibonacci(n - 1) + fibonacci(n - 2); // Recursive case
+  if (n <= 1) {
+    return n; // Base case
+  }
+  
+  return fibonacci(n - 1) + fibonacci(n - 2); // Recursive case
 }`,
       'n-queens': `function solveNQueens(n) {
-  const board = Array(n).fill().map(() => Array(n).fill('.'));
-  const result = [];
-  
-  const isValid = (row, col) => {
-    // Check column
-    for (let i = 0; i < row; i++) {
-      if (board[i][col] === 'Q') return false;
-    }
-    
-    // Check diagonals
-    for (let i = row - 1, j = col - 1; i >= 0 && j >= 0; i--, j--) {
-      if (board[i][j] === 'Q') return false;
-    }
-    
-    for (let i = row - 1, j = col + 1; i >= 0 && j < n; i--, j++) {
-      if (board[i][j] === 'Q') return false;
-    }
-    
-    return true;
-  };
-  
-  const backtrack = (row) => {
-    if (row === n) {
-      result.push(board.map(row => row.join('')));
-      return;
-    }
-    
-    for (let col = 0; col < n; col++) {
-      if (isValid(row, col)) {
-        board[row][col] = 'Q';
-        backtrack(row + 1);
-        board[row][col] = '.';
-      }
-    }
-  };
-  
-  backtrack(0);
-  return result;
+  const board = Array(n).fill().map(() => Array(n).fill('.'));
+  const result = [];
+  
+  const isValid = (row, col) => {
+    // Check column
+    for (let i = 0; i < row; i++) {
+      if (board[i][col] === 'Q') return false;
+    }
+    
+    // Check diagonals
+    for (let i = row - 1, j = col - 1; i >= 0 && j >= 0; i--, j--) {
+      if (board[i][j] === 'Q') return false;
+    }
+    
+    for (let i = row - 1, j = col + 1; i >= 0 && j < n; i--, j++) {
+      if (board[i][j] === 'Q') return false;
+    }
+    
+    return true;
+  };
+  
+  const backtrack = (row) => {
+    if (row === n) {
+      result.push(board.map(row => row.join('')));
+      return;
+    }
+    
+    for (let col = 0; col < n; col++) {
+      if (isValid(row, col)) {
+        board[row][col] = 'Q';
+        backtrack(row + 1);
+        board[row][col] = '.';
+      }
+    }
+  };
+  
+  backtrack(0);
+  return result;
 }`,
       'tower-of-hanoi': `function towerOfHanoi(n, source, destination, auxiliary) {
-  if (n === 1) {
-    console.log(\`Move disk 1 from \${source} to \${destination}\`);
-    return;
-  }
-  
-  towerOfHanoi(n - 1, source, auxiliary, destination);
-  console.log(\`Move disk \${n} from \${source} to \${destination}\`);
-  towerOfHanoi(n - 1, auxiliary, destination, source);
+  if (n === 1) {
+    console.log(\`Move disk 1 from \${source} to \${destination}\`);
+    return;
+  }
+  
+  towerOfHanoi(n - 1, source, auxiliary, destination);
+  console.log(\`Move disk \${n} from \${source} to \${destination}\`);
+  towerOfHanoi(n - 1, auxiliary, destination, source);
 }`,
     },
     dp: {
       '0-1-knapsack': `function knapsack(weights, values, capacity) {
-  const n = weights.length;
-  const dp = Array(n + 1).fill().map(() => Array(capacity + 1).fill(0));
-  
-  for (let i = 1; i <= n; i++) {
-    for (let w = 1; w <= capacity; w++) {
-      if (weights[i - 1] <= w) {
-        dp[i][w] = Math.max(
-          values[i - 1] + dp[i - 1][w - weights[i - 1]],
-          dp[i - 1][w]
-        );
-      } else {
-        dp[i][w] = dp[i - 1][w];
-      }
-    }
-  }
-  
-  return dp[n][capacity];
+  const n = weights.length;
+  const dp = Array(n + 1).fill().map(() => Array(capacity + 1).fill(0));
+  
+  for (let i = 1; i <= n; i++) {
+    for (let w = 1; w <= capacity; w++) {
+      if (weights[i - 1] <= w) {
+        dp[i][w] = Math.max(
+          values[i - 1] + dp[i - 1][w - weights[i - 1]],
+          dp[i - 1][w]
+        );
+      } else {
+        dp[i][w] = dp[i - 1][w];
+      }
+    }
+  }
+  
+  return dp[n][capacity];
 }`,
       lcs: `function longestCommonSubsequence(text1, text2) {
-  const m = text1.length;
-  const n = text2.length;
-  const dp = Array(m + 1).fill().map(() => Array(n + 1).fill(0));
-  
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (text1[i - 1] === text2[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-  }
-  
-  return dp[m][n];
+  const m = text1.length;
+  const n = text2.length;
+  const dp = Array(m + 1).fill().map(() => Array(n + 1).fill(0));
+  
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (text1[i - 1] === text2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  
+  return dp[m][n];
 }`,
       'grid-paths': `function uniquePaths(m, n) {
-  const dp = Array(m).fill().map(() => Array(n).fill(1));
-  
-  for (let i = 1; i < m; i++) {
-    for (let j = 1; j < n; j++) {
-      dp[i][j] = dp[i - 1][j] + dp[i][j - 1];
-    }
-  }
-  
-  return dp[m - 1][n - 1];
+  const dp = Array(m).fill().map(() => Array(n).fill(1));
+  
+  for (let i = 1; i < m; i++) {
+    for (let j = 1; j < n; j++) {
+      dp[i][j] = dp[i - 1][j] + dp[i][j - 1];
+    }
+  }
+  
+  return dp[m - 1][n - 1];
 }`,
       'coin-change': `function coinChange(coins, amount) {
-  const dp = Array(amount + 1).fill(Infinity);
-  dp[0] = 0;
-  
-  for (let i = 1; i <= amount; i++) {
-    for (const coin of coins) {
-      if (coin <= i) {
-        dp[i] = Math.min(dp[i], dp[i - coin] + 1);
-      }
-    }
-  }
-  
-  return dp[amount] === Infinity ? -1 : dp[amount];
+  const dp = Array(amount + 1).fill(Infinity);
+  dp[0] = 0;
+  
+  for (let i = 1; i <= amount; i++) {
+    for (const coin of coins) {
+      if (coin <= i) {
+        dp[i] = Math.min(dp[i], dp[i - coin] + 1);
+      }
+    }
+  }
+  
+  return dp[amount] === Infinity ? -1 : dp[amount];
 }`,
     },
   };
@@ -1186,9 +1191,8 @@ app.post('/api/user/progress', authenticateToken, async (req, res) => {
       await progress.recordCompletion(executionTime);
     } else {
       await progress.recordAttempt(executionTime);
-    }
+    } // Update user statistics
 
-    // Update user statistics
     const user = await User.findById(req.user.userId);
     if (user) {
       user.statistics.totalTimeSpent += executionTime || 0;
@@ -1215,9 +1219,8 @@ app.get('/api/user/achievements', authenticateToken, async (req, res) => {
       points: -1,
     });
 
-    const userProgress = await UserProgress.find({ userId: req.user.userId });
+    const userProgress = await UserProgress.find({ userId: req.user.userId }); // Check which achievements user has earned
 
-    // Check which achievements user has earned
     const earnedAchievements = [];
     for (const achievement of achievements) {
       const hasEarned = await achievement.checkCriteria(
@@ -1249,9 +1252,8 @@ app.get('/api/leaderboard', async (req, res) => {
     let matchQuery = {};
     if (category) {
       matchQuery.category = category;
-    }
+    } // Add timeframe filter if needed
 
-    // Add timeframe filter if needed
     if (timeframe === 'week') {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);

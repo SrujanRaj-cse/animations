@@ -5,7 +5,7 @@ const algorithmCodeSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      unique: true,
+      unique: true, // <-- Index created here
       trim: true,
     },
     category: {
@@ -48,8 +48,9 @@ const algorithmCodeSchema = new mongoose.Schema(
   }
 );
 
-// Index for efficient queries
+// Index for efficient queries - Keeping compound index and isActive
 algorithmCodeSchema.index({ category: 1, name: 1 });
 algorithmCodeSchema.index({ isActive: 1 });
+// The individual index on 'name' is covered by 'unique: true' and the compound index.
 
 export default mongoose.model('AlgorithmCode', algorithmCodeSchema);
