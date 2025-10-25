@@ -96,12 +96,22 @@ const Visualizer = () => {
       algorithmData = { tree: [], result: null };
       setRecursionData(algorithmData);
     } else if (algorithmCategory === 'dp') {
-      // Initialize DP table data
-      algorithmData = {
-        table: Array(5)
-          .fill()
-          .map(() => Array(5).fill(0)),
-      };
+      // Initialize DP data based on algorithm
+      if (selected.toLowerCase().includes('knapsack')) {
+        algorithmData = [2, 3, 4, 5]; // Weights array
+      } else if (selected.toLowerCase().includes('lcs')) {
+        algorithmData = ['ABCD', 'ACDF']; // Two strings
+      } else if (selected.toLowerCase().includes('grid')) {
+        algorithmData = [3, 3]; // Grid dimensions
+      } else if (selected.toLowerCase().includes('coin')) {
+        algorithmData = [1, 3, 4]; // Coins array
+      } else {
+        algorithmData = {
+          table: Array(5)
+            .fill()
+            .map(() => Array(5).fill(0)),
+        };
+      }
     }
 
     try {
@@ -141,6 +151,23 @@ const Visualizer = () => {
       setGraphData(null);
     } else if (algorithmCategory === 'recursion') {
       setRecursionData(null);
+    } else if (algorithmCategory === 'dp') {
+      // Reset DP data based on algorithm
+      if (selected.toLowerCase().includes('knapsack')) {
+        setData([2, 3, 4, 5]); // Weights array
+      } else if (selected.toLowerCase().includes('lcs')) {
+        setData(['ABCD', 'ACDF']); // Two strings
+      } else if (selected.toLowerCase().includes('grid')) {
+        setData([3, 3]); // Grid dimensions
+      } else if (selected.toLowerCase().includes('coin')) {
+        setData([1, 3, 4]); // Coins array
+      } else {
+        setData({
+          table: Array(5)
+            .fill()
+            .map(() => Array(5).fill(0)),
+        });
+      }
     } else {
       setData([5, 3, 8, 1, 6]); // Reset to initial data for sorting/searching
     }

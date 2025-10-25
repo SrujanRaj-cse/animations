@@ -19,44 +19,104 @@ export const dfs = async (
   const visited = new Set();
   const result = [];
   const visitedOrder = [];
+  const stack = [startNode];
+
+  console.log(`Starting DFS from node ${startNode}`);
+
+  // First, show the initial graph
+  const initialGraphData = {
+    ...graphData,
+    nodes: graphData.nodes || generateGraphNodes(graph),
+    edges: graphData.edges || generateGraphEdges(graph),
+    visited: [],
+    current: null,
+    stack: [startNode],
+  };
+  setData(initialGraphData);
+  setActive([]);
+  await new Promise(resolve => setTimeout(resolve, speed));
 
   const dfsHelper = async node => {
     if (isPaused && isPaused()) return;
 
+    console.log(`Visiting node ${node}`);
     visited.add(node);
     result.push(node);
     visitedOrder.push(node);
 
+    // Update stack
+    const currentStack = [...stack];
+    if (currentStack.includes(node)) {
+      currentStack.splice(currentStack.indexOf(node), 1);
+    }
+
     // Highlight current node and all visited nodes
     setActive([...visitedOrder]);
+
+    const updatedGraphData = {
+      ...graphData,
+      nodes: graphData.nodes || generateGraphNodes(graph),
+      edges: graphData.edges || generateGraphEdges(graph),
+      visited: visitedOrder,
+      current: node,
+      stack: currentStack,
+    };
+    setData(updatedGraphData);
+
     await new Promise(resolve => setTimeout(resolve, speed));
 
     const neighbors = graph[node] || [];
+    console.log(
+      `Exploring neighbors of node ${node}: [${neighbors.join(', ')}]`
+    );
+
     for (const neighbor of neighbors) {
       if (isPaused && isPaused()) return;
 
+      console.log(`Checking neighbor ${neighbor} of node ${node}`);
+
       if (!visited.has(neighbor)) {
+        // Add to stack
+        currentStack.push(neighbor);
+
         // Highlight the edge being explored
         setActive([...visitedOrder, neighbor]);
+
+        const edgeGraphData = {
+          ...graphData,
+          nodes: graphData.nodes || generateGraphNodes(graph),
+          edges: graphData.edges || generateGraphEdges(graph),
+          visited: visitedOrder,
+          current: node,
+          exploring: neighbor,
+          stack: currentStack,
+        };
+        setData(edgeGraphData);
+
         await new Promise(resolve => setTimeout(resolve, speed / 2));
 
         await dfsHelper(neighbor);
+      } else {
+        console.log(`Neighbor ${neighbor} already visited`);
       }
     }
   };
 
   await dfsHelper(startNode);
 
-  // Update the graph data with visited information
-  const updatedGraphData = {
+  // Final state
+  const finalGraphData = {
     ...graphData,
     nodes: graphData.nodes || generateGraphNodes(graph),
     edges: graphData.edges || generateGraphEdges(graph),
     visited: visitedOrder,
+    current: null,
+    stack: [],
   };
 
-  setData(updatedGraphData);
+  setData(finalGraphData);
   setActive([]);
+  console.log(`DFS completed. Visited order: [${visitedOrder.join(', ')}]`);
   return result;
 };
 
